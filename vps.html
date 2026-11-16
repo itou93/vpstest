@@ -60,15 +60,15 @@
     <!-- カメラ（スマホのジャイロ回転に連動） -->
     <a-camera id="ar-camera" position="0 0 0" look-controls="touchEnabled: false"></a-camera>
 
-   <a-entity 
+        <a-entity 
         gltf-model="#chara-model" 
-        scale="0.15 0.15 0.15" 
-        position="0 -0.3 0" 
+        scale="0.06 0.06 0.06" 
+        position="0 -0.3 -0.5" 
         rotation="0 180 0"
         animation-mixer>
-      </a-entity>
+      </a-entity>     
+    <!-- フワフワ浮く案内プレート -->
 
-      <!-- フワフワ浮く案内プレート -->
       <a-entity 
         position="0.4 0.2 0"
         animation="property: position; to: 0.4 0.3 0; dir: alternate; dur: 1200; loop: true; easing: easeInOutSine">
