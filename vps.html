@@ -51,7 +51,7 @@
   <a-scene embedded vr-mode-ui="enabled: false" renderer="alpha: true;">
     <a-assets>
       <!-- ※フォルダ分けした場合は src="maya/kougyo2.glb" に変更 -->
-      <a-asset-item id="chara-model" src="./maya/kougyo2.glb"></a-asset-item>
+      <a-asset-item id="chara-model" src="./kougyo2.glb"></a-asset-item>
     </a-assets>
 
     <a-entity light="type: ambient; color: #ffffff; intensity: 1.8;"></a-entity>
@@ -60,15 +60,16 @@
     <!-- カメラ（スマホのジャイロ回転に連動） -->
     <a-camera id="ar-camera" position="0 0 0" look-controls="touchEnabled: false"></a-camera>
 
-        <a-entity 
+    <!-- VPS認識成功時に出現するキャラクターと案内板 -->
+    <a-entity id="vps-anchor" visible="false">
+      <a-entity 
         gltf-model="#chara-model" 
-        scale="0.06 0.06 0.06" 
-        position="0 -0.3 -0.5" 
-        rotation="0 180 0"
+        scale="0.15 0.15 0.15" 
+        position="0 -0.3 0" 
         animation-mixer>
-      </a-entity>     
-    <!-- フワフワ浮く案内プレート -->
+      </a-entity>
 
+      <!-- フワフワ浮く案内プレート -->
       <a-entity 
         position="0.4 0.2 0"
         animation="property: position; to: 0.4 0.3 0; dir: alternate; dur: 1200; loop: true; easing: easeInOutSine">
@@ -81,7 +82,7 @@
   <script>
     // ==========================================
     // ★ ここにあなたの Developer Token を貼り付け
-    const DEVELOPER_TOKEN = "64e94096aa570f86962c78e6804785f377c45317b8f1c5836c3470c73f3d105f";
+    const DEVELOPER_TOKEN = "ここにDeveloper Tokenを貼り付け";
     const MAP_ID = 153490; // 作成したマップID
     // ==========================================
 
