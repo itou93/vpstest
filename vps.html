@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>VPS 空間認識テスト (ID: 153490)</title>
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: sans-serif; background: #000; }
+    #camera-video {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      object-fit: cover; z-index: 0;
+    }
+    a-scene {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1;
+    }
+    #hud {
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      width: 90%; max-width: 420px; z-index: 9999;
+      background: rgba(15, 23, 42, 0.88); color: #fff;
+      padding: 14px 18px; border-radius: 16px; border: 1px solid #38bdf8;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4); font-size: 13px; line-height: 1.5;
+    }
+    #status-badge {
+      display: inline-block; padding: 2px 10px; border-radius: 10px;
+      background: #f59e0b; color: #000; font-weight: bold; margin-bottom: 6px;
+    }
+    #scan-btn {
+      margin-top: 8px; width: 100%; padding: 10px;
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: white; border: none; border-radius: 10px;
+      font-weight: bold; font-size: 14px; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 背景のカメラ映像 -->
+  <video id="camera-video" autoplay playsinline muted></video>
+  <canvas id="capture-canvas" style="display:none;"></canvas>
+
+  <!-- ステータス表示パネル -->
+  <div id="hud">
+    <div><span id="status-badge">スキャン待機中</span></div>
+    <div id="coord-text">スキャンした壁にカメラを向けて下のボタンを押してください</div>
+    <button id="scan-btn" onclick="localizeOnce()">📷 この場所をVPSで認識する</button>
+  </div>
+
+  <!-- 3D / AR シーン -->
+  <a-scene embedded vr-mode-ui="enabled: false" renderer="alpha: true;">
+    <a-assets>
+      <!-- ※フォルダ分けした場合は src="maya/kougyo2.glb" に変更 -->
+      <a-asset-item id="chara-model" src="maya/kougyo2.glb"></a-asset-item>
+    </a-assets>
+
+    <a-entity light="type: ambient; color: #ffffff; intensity: 1.8;"></a-entity>
+    <a-entity light="type: directional; color: #ffffff; intensity: 1.0;" position="1 2 1"></a-entity>
+
+    <!-- カメラ（スマホのジャイロ回転に連動） -->
+    <a-camera id="ar-camera" position="0 0 0" look-controls="touchEnabled: false"></a-camera>
+
+    <!-- VPS認識成功時に出現するキャラクターと案内板 -->
+    <a-entity id="vps-anchor" visible="false">
+      <a-entity 
+        gltf-model="#chara-model" 
+        scale="0.15 0.15 0.15" 
+        position="0 -0.3 0" 
+        animation-mixer>
+      </a-entity>
+
+      <!-- フワフワ浮く案内プレート -->
+      <a-entity 
+        position="0.4 0.2 0"
+        animation="property: position; to: 0.4 0.3 0; dir: alternate; dur: 1200; loop: true; easing: easeInOutSine">
+        <a-plane width="0.7" height="0.3" color="#ffffff" opacity="0.95"></a-plane>
+        <a-text value="VPS CONNECTED!\nID: 153490" color="#059669" align="center" width="1.5" position="0 0 0.01"></a-text>
+      </a-entity>
+    </a-entity>
+  </a-scene>
+
+  <script>
+    // ==========================================
+    // ★ ここにあなたの Developer Token を貼り付け
+    const DEVELOPER_TOKEN = "64e94096aa570f86962c78e6804785f377c45317b8f1c5836c3470c73f3d105f";
+    const MAP_ID = 153490; // 作成したマップID
+    // ==========================================
+
+    const video = document.getElementById('camera-video');
+    const canvas = document.getElementById('capture-canvas');
+    const statusBadge = document.getElementById('status-badge');
+    const coordText = document.getElementById('coord-text');
+    const vpsAnchor = document.getElementById('vps-anchor');
+
+    // 背面カメラ起動
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+        video.srcObject = stream;
+      } catch (err) {
+        coordText.textContent = "カメラ起動エラー: " + err.message;
+      }
+    }
+    startCamera();
+
+    // Immersal Cloud VPS API へ画像を送信して現在地を取得
+    async function localizeOnce() {
+      if (!video.videoWidth) return;
+
+      statusBadge.textContent = "VPS照合中...";
+      statusBadge.style.background = "#38bdf8";
+
+      // カメラ映像をCanvasに描画してBase64化
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+
+      // カメラの簡易内部パラメータ推定
+      const focal = Math.max(canvas.width, canvas.height) * 0.8;
+      const payload = {
+        token: DEVELOPER_TOKEN,
+        fx: focal,
+        fy: focal,
+        ox: canvas.width / 2,
+        oy: canvas.height / 2,
+        b64: base64Image,
+        mapIds: [{ id: MAP_ID }]
+      };
+
+      try {
+        const res = await fetch("https://api.immersal.com/localizeb64", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.error === "none" && data.success) {
+          statusBadge.textContent = "✅ 空間認識成功！";
+          statusBadge.style.background = "#10b981";
+          statusBadge.style.color = "#fff";
+
+          // Immersalから返ってきた3D座標（px, py, pz）
+          const px = data.px.toFixed(2);
+          const py = data.py.toFixed(2);
+          const pz = data.pz.toFixed(2);
+          coordText.innerHTML = `現在地座標: X=${px}m, Y=${py}m, Z=${pz}m<br>目の前にキャラクターが出現しました！`;
+
+          // 認識成功時にキャラクターを表示（カメラの1.5m前方に配置）
+          const cam = document.getElementById('ar-camera');
+          const camPos = cam.object3D.position;
+          const camDir = new THREE.Vector3();
+          cam.object3D.getWorldDirection(camDir);
+
+          vpsAnchor.setAttribute('position', {
+            x: camPos.x - camDir.x * 1.5,
+            y: camPos.y - camDir.y * 1.5,
+            z: camPos.z - camDir.z * 1.5
+          });
+          vpsAnchor.setAttribute('visible', true);
+        } else {
+          statusBadge.textContent = "未検出（もう一度試してね）";
+          statusBadge.style.background = "#ef4444";
+          statusBadge.style.color = "#fff";
+          coordText.textContent = "スキャンした壁の模様がはっきり写るように近づいて押してみてください。";
+        }
+      } catch (e) {
+        statusBadge.textContent = "通信エラー";
+        coordText.textContent = "API通信失敗: " + e.message;
+      }
+    }
+  </script>
+</body>
+</html>
