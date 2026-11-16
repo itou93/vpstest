@@ -163,6 +163,10 @@
             z: camPos.z - camDir.z * 1.5
           });
           vpsAnchor.setAttribute('visible', true);
+
+          // ★追加：キャラクターが常にユーザー（カメラ）の正面を向くようにする
+          const targetPos = new THREE.Vector3(camPos.x, vpsAnchor.object3D.position.y, camPos.z);
+          vpsAnchor.object3D.lookAt(targetPos);
         } else {
           statusBadge.textContent = "未検出（もう一度試してね）";
           statusBadge.style.background = "#ef4444";
