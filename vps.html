@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>VPS 空間固定 ＆ 柱オクルージョン検証</title>
+  <title>VPS 歩き追従 ＆ 柱オクルージョン検証</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
   <style>
@@ -41,38 +41,30 @@
 </head>
 <body>
 
-  <!-- 背景カメラ映像 -->
   <video id="camera-video" autoplay playsinline muted></video>
   <canvas id="capture-canvas" style="display:none;"></canvas>
 
-  <!-- 操作・ステータスHUD -->
   <div id="hud">
     <div><span id="status-badge">スキャン待機中</span></div>
-    <div id="coord-text">柱と空間が写る位置で「空間を認識」を押してください</div>
+    <div id="coord-text">「自動追跡スタート」を押すと歩きながら位置を更新します</div>
     <div class="btn-row">
-      <button id="scan-btn" onclick="localizeOnce()">📷 空間を認識して固定</button>
+      <button id="scan-btn" onclick="toggleAutoTracking()">📷 自動追跡スタート</button>
       <button id="toggle-occ-btn" onclick="toggleOcclusionMode()">柱: 赤表示中</button>
     </div>
   </div>
 
-  <!-- 3D / AR シーン -->
   <a-scene embedded vr-mode-ui="enabled: false" renderer="alpha: true;">
     <a-assets>
-      <!-- ※フォルダ構成に合わせてパスを変更してください -->
       <a-asset-item id="chara-model" src="maya/kougyo2.glb"></a-asset-item>
     </a-assets>
 
     <a-entity light="type: ambient; color: #ffffff; intensity: 1.8;"></a-entity>
     <a-entity light="type: directional; color: #ffffff; intensity: 1.0;" position="1 2 1"></a-entity>
 
-    <!-- カメラ（スマホのジャイロ回転に連動） -->
     <a-camera id="ar-camera" position="0 0 0" look-controls="touchEnabled: false"></a-camera>
 
-    <!-- ★ Immersal空間の基準点（ここに現実空間の原点 0,0,0 が同期される） -->
     <a-entity id="vps-world-root" visible="false">
-
-      <!-- ① 柱のオクルージョン用ボックス（スキャン開始位置の正面約2mに仮置き） -->
-      <!-- 現実の柱と重なるように position / width / height / depth を調整してください -->
+      <!-- ① 柱のオクルージョン用ボックス（初期は赤い半透明） -->
       <a-box
         id="pillar-occluder"
         position="0 0 -2.0"
@@ -82,7 +74,7 @@
         material="color: #ef4444; opacity: 0.45; transparent: true;">
       </a-box>
 
-      <!-- ② 空間に固定されるキャラクター（柱の少し奥・右横に配置） -->
+      <!-- ② 空間に固定されるキャラクター -->
       <a-entity
         id="chara-entity"
         gltf-model="#chara-model"
@@ -91,15 +83,13 @@
         rotation="0 0 0"
         animation-mixer>
       </a-entity>
-
     </a-entity>
   </a-scene>
 
   <script>
     // ==========================================
-    // ★ あなたの Developer Token と新しい Map ID を入力
     const DEVELOPER_TOKEN = "64e94096aa570f86962c78e6804785f377c45317b8f1c5836c3470c73f3d105f";
-    const MAP_ID = 153609; // 新しくスキャンした柱＋空間のMap IDに書き換え
+    const MAP_ID = 153610; // あなたのMap IDに書き換え
     // ==========================================
 
     const video = document.getElementById('camera-video');
@@ -109,18 +99,34 @@
     const vpsWorldRoot = document.getElementById('vps-world-root');
     const pillarOccluder = document.getElementById('pillar-occluder');
     const toggleOccBtn = document.getElementById('toggle-occ-btn');
+    const scanBtn = document.getElementById('scan-btn');
 
     let isTransparentOcclusion = false;
+    let trackingTimer = null;
+    let isRequesting = false;
 
-    // 柱ボックスの「赤半透明（位置合わせ用）」と「完全透明（本番オクルージョン用）」を切り替え
+    // ★ Three.jsのマテリアルを直接操作して確実に「赤半透明 ⇔ 透明オクルージョン」を切り替える
     function toggleOcclusionMode() {
       isTransparentOcclusion = !isTransparentOcclusion;
+      const mesh = pillarOccluder.getObject3D('mesh');
+
       if (isTransparentOcclusion) {
-        pillarOccluder.setAttribute('material', 'colorWrite: false; transparent: false; opacity: 1;');
+        if (mesh && mesh.material) {
+          mesh.material.colorWrite = false;
+          mesh.material.transparent = false;
+          mesh.material.opacity = 1.0;
+          mesh.material.needsUpdate = true;
+        }
         toggleOccBtn.textContent = "柱: 透明隠れ中";
         toggleOccBtn.style.background = "#3b82f6";
       } else {
-        pillarOccluder.setAttribute('material', 'color: #ef4444; opacity: 0.45; transparent: true; colorWrite: true;');
+        if (mesh && mesh.material) {
+          mesh.material.colorWrite = true;
+          mesh.material.color.set('#ef4444');
+          mesh.material.transparent = true;
+          mesh.material.opacity = 0.45;
+          mesh.material.needsUpdate = true;
+        }
         toggleOccBtn.textContent = "柱: 赤表示中";
         toggleOccBtn.style.background = "#ef4444";
       }
@@ -140,13 +146,27 @@
     }
     startCamera();
 
-    // Immersal APIで空間認識し、3D空間の原点・向きを現実と一致させる
-    async function localizeOnce() {
-      if (!video.videoWidth) return;
+    // 自動追跡（2秒おきに空間認識ループ）のオン・オフ
+    function toggleAutoTracking() {
+      if (trackingTimer) {
+        clearInterval(trackingTimer);
+        trackingTimer = null;
+        scanBtn.textContent = "📷 自動追跡スタート";
+        scanBtn.style.background = "linear-gradient(135deg, #10b981, #059669)";
+        statusBadge.textContent = "一時停止中";
+        statusBadge.style.background = "#f59e0b";
+        statusBadge.style.color = "#000";
+      } else {
+        scanBtn.textContent = "⏹ 追跡ストップ";
+        scanBtn.style.background = "#64748b";
+        localizeOnce(); // 押した瞬間に1回目を実行
+        trackingTimer = setInterval(localizeOnce, 2000); // 以降2秒おきに自動更新
+      }
+    }
 
-      statusBadge.textContent = "空間照合中...";
-      statusBadge.style.background = "#38bdf8";
-      statusBadge.style.color = "#000";
+    async function localizeOnce() {
+      if (!video.videoWidth || isRequesting) return;
+      isRequesting = true;
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -174,36 +194,33 @@
         const data = await res.json();
 
         if (data.error === "none" && data.success) {
-          statusBadge.textContent = "✅ 空間固定完了！";
+          statusBadge.textContent = "✅ 自動追跡中";
           statusBadge.style.background = "#10b981";
           statusBadge.style.color = "#fff";
 
           const px = data.px.toFixed(2);
           const py = data.py.toFixed(2);
           const pz = data.pz.toFixed(2);
-          coordText.innerHTML = `現在地: X=${px}m, Y=${py}m, Z=${pz}m<br>横に動いて柱の後ろに隠れるか確認してください`;
+          coordText.innerHTML = `現在地: X=${px}m, Y=${py}m, Z=${pz}m<br>ゆっくり歩くと距離と角度が自動更新されます`;
 
-          // ★ Immersalのカメラ行列から「現実空間の原点(vpsWorldRoot)」の逆変換を計算して同期
           applyImmersalTransform(data);
           vpsWorldRoot.setAttribute('visible', true);
         } else {
-          statusBadge.textContent = "未検出";
-          statusBadge.style.background = "#ef4444";
-          statusBadge.style.color = "#fff";
-          coordText.textContent = "理由: " + (data.error || "特徴点不一致") + "（スキャン時と同じ距離・向きで再試行）";
+          // 追跡中に一時的に見失っても、すでに表示済みの3Dモデルは消さずに維持する
+          statusBadge.textContent = "再探索中...";
+          statusBadge.style.background = "#f59e0b";
+          statusBadge.style.color = "#000";
         }
       } catch (e) {
-        statusBadge.textContent = "通信エラー";
-        statusBadge.style.background = "#ef4444";
-        coordText.textContent = "API通信失敗: " + e.message;
+        coordText.textContent = "通信エラー: " + e.message;
+      } finally {
+        isRequesting = false;
       }
     }
 
-    // Immersalの座標系（左手系/Y-up）をA-Frame（Three.js右手系）に変換して空間を固定
     function applyImmersalTransform(data) {
       const cam = document.getElementById('ar-camera').object3D;
 
-      // Immersalから返ってきたマップ空間内でのカメラ位置と回転行列
       const m = new THREE.Matrix4();
       m.set(
         data.r00, data.r01, data.r02, data.px,
@@ -212,14 +229,10 @@
         0,        0,        0,        1
       );
 
-      // Immersalカメラ座標系からThree.jsカメラ座標系への軸補正（Z軸反転）
       const flipZ = new THREE.Matrix4().makeScale(1, 1, -1);
       const mapToCam = new THREE.Matrix4().multiplyMatrices(flipZ, m).multiply(flipZ);
-
-      // 「カメラから見たマップ原点の位置」を求めるため逆行列を取る
       const camToMap = mapToCam.clone().invert();
 
-      // 現在のA-Frameカメラのワールド姿勢と掛け合わせて、空間全体を現実の座標に固定
       cam.updateMatrixWorld();
       const worldMatrix = new THREE.Matrix4().multiplyMatrices(cam.matrixWorld, camToMap);
 
