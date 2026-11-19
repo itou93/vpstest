@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>VPS 歩き追従 ＆ 柱オクルージョン検証</title>
+  <title>VPS 現場位置合わせ＆柱オクルージョン</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
   <style>
@@ -16,27 +16,38 @@
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1;
     }
     #hud {
-      position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
-      width: 92%; max-width: 420px; z-index: 9999;
-      background: rgba(15, 23, 42, 0.88); color: #fff;
-      padding: 12px 16px; border-radius: 14px; border: 1px solid #38bdf8;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4); font-size: 12px; line-height: 1.4;
+      position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+      width: 94%; max-width: 440px; z-index: 9999;
+      background: rgba(15, 23, 42, 0.9); color: #fff;
+      padding: 10px 12px; border-radius: 12px; border: 1px solid #38bdf8;
+      font-size: 11px; line-height: 1.4;
     }
     #status-badge {
-      display: inline-block; padding: 2px 10px; border-radius: 10px;
-      background: #f59e0b; color: #000; font-weight: bold; margin-bottom: 4px;
+      display: inline-block; padding: 2px 8px; border-radius: 8px;
+      background: #f59e0b; color: #000; font-weight: bold;
     }
-    .btn-row { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+    .btn-row { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
     button {
-      padding: 8px 10px; border: none; border-radius: 8px;
-      font-weight: bold; font-size: 12px; cursor: pointer;
+      padding: 6px 8px; border: none; border-radius: 6px;
+      font-weight: bold; font-size: 11px; cursor: pointer;
     }
-    #scan-btn {
-      flex: 1; background: linear-gradient(135deg, #10b981, #059669); color: white; font-size: 13px;
+    #scan-btn { flex: 1; background: #10b981; color: white; }
+    #toggle-occ-btn { background: #ef4444; color: white; }
+    #target-btn { background: #8b5cf6; color: white; }
+
+    /* 位置微調整パッド（画面下） */
+    #pad {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      width: 94%; max-width: 440px; z-index: 9999;
+      background: rgba(15, 23, 42, 0.9); color: #fff;
+      padding: 10px; border-radius: 12px; border: 1px solid #64748b;
+      font-size: 11px;
     }
-    #toggle-occ-btn {
-      background: #ef4444; color: white;
+    .pad-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 6px;
     }
+    .pad-grid button { background: #334155; color: #fff; padding: 8px 4px; }
+    #pos-readout { color: #38bdf8; font-family: monospace; margin-top: 4px; font-size: 11px; }
   </style>
 </head>
 <body>
@@ -44,13 +55,32 @@
   <video id="camera-video" autoplay playsinline muted></video>
   <canvas id="capture-canvas" style="display:none;"></canvas>
 
+  <!-- 上部ステータス -->
   <div id="hud">
-    <div><span id="status-badge">スキャン待機中</span></div>
-    <div id="coord-text">「自動追跡スタート」を押すと歩きながら位置を更新します</div>
+    <div><span id="status-badge">スキャン待機中</span> <span id="coord-text">柱を写して認識ボタンを押してください</span></div>
     <div class="btn-row">
-      <button id="scan-btn" onclick="toggleAutoTracking()">📷 自動追跡スタート</button>
+      <button id="scan-btn" onclick="localizeOnce()">📷 1回認識して固定</button>
       <button id="toggle-occ-btn" onclick="toggleOcclusionMode()">柱: 赤表示中</button>
     </div>
+  </div>
+
+  <!-- 下部 現場微調整パッド -->
+  <div id="pad">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <span>動かす対象：</span>
+      <button id="target-btn" onclick="switchTarget()">現在：🟥 赤い柱を移動中</button>
+    </div>
+    <div class="pad-grid">
+      <button onclick="moveObj(-0.2, 0, 0)">⬅ 左へ</button>
+      <button onclick="moveObj(0.2, 0, 0)">➡ 右へ</button>
+      <button onclick="moveObj(0, 0, -0.2)">⬆ 奥へ</button>
+      <button onclick="moveObj(0, 0, 0.2)">⬇ 手前へ</button>
+      <button onclick="moveObj(0, 0.2, 0)">🔼 上へ</button>
+      <button onclick="moveObj(0, -0.2, 0)">🔽 下へ</button>
+      <button onclick="resizePillar(0.1)">柱 太く+</button>
+      <button onclick="resizePillar(-0.1)">柱 細く-</button>
+    </div>
+    <div id="pos-readout">柱: x=0.0, y=0.0, z=-2.0 | キャラ: x=0.4, y=-0.8, z=-2.8</div>
   </div>
 
   <a-scene embedded vr-mode-ui="enabled: false" renderer="alpha: true;">
@@ -64,7 +94,7 @@
     <a-camera id="ar-camera" position="0 0 0" look-controls="touchEnabled: false"></a-camera>
 
     <a-entity id="vps-world-root" visible="false">
-      <!-- ① 柱のオクルージョン用ボックス（初期は赤い半透明） -->
+      <!-- ① 柱のオクルージョン用ボックス -->
       <a-box
         id="pillar-occluder"
         position="0 0 -2.0"
@@ -74,7 +104,7 @@
         material="color: #ef4444; opacity: 0.45; transparent: true;">
       </a-box>
 
-      <!-- ② 空間に固定されるキャラクター -->
+      <!-- ② キャラクター -->
       <a-entity
         id="chara-entity"
         gltf-model="#chara-model"
@@ -98,14 +128,52 @@
     const coordText = document.getElementById('coord-text');
     const vpsWorldRoot = document.getElementById('vps-world-root');
     const pillarOccluder = document.getElementById('pillar-occluder');
+    const charaEntity = document.getElementById('chara-entity');
     const toggleOccBtn = document.getElementById('toggle-occ-btn');
-    const scanBtn = document.getElementById('scan-btn');
+    const targetBtn = document.getElementById('target-btn');
+    const posReadout = document.getElementById('pos-readout');
 
     let isTransparentOcclusion = false;
-    let trackingTimer = null;
-    let isRequesting = false;
+    let editTarget = 'pillar'; // 'pillar' or 'chara'
 
-    // ★ Three.jsのマテリアルを直接操作して確実に「赤半透明 ⇔ 透明オクルージョン」を切り替える
+    function switchTarget() {
+      if (editTarget === 'pillar') {
+        editTarget = 'chara';
+        targetBtn.textContent = "現在：🧍 キャラを移動中";
+        targetBtn.style.background = "#0284c7";
+      } else {
+        editTarget = 'pillar';
+        targetBtn.textContent = "現在：🟥 赤い柱を移動中";
+        targetBtn.style.background = "#8b5cf6";
+      }
+    }
+
+    function moveObj(dx, dy, dz) {
+      const el = (editTarget === 'pillar') ? pillarOccluder : charaEntity;
+      const pos = el.getAttribute('position');
+      el.setAttribute('position', {
+        x: Number((pos.x + dx).toFixed(2)),
+        y: Number((pos.y + dy).toFixed(2)),
+        z: Number((pos.z + dz).toFixed(2))
+      });
+      updateReadout();
+    }
+
+    function resizePillar(delta) {
+      const w = Math.max(0.1, Number((Number(pillarOccluder.getAttribute('width')) + delta).toFixed(2)));
+      const d = Math.max(0.1, Number((Number(pillarOccluder.getAttribute('depth')) + delta).toFixed(2)));
+      pillarOccluder.setAttribute('width', w);
+      pillarOccluder.setAttribute('depth', d);
+      updateReadout();
+    }
+
+    function updateReadout() {
+      const p = pillarOccluder.getAttribute('position');
+      const c = charaEntity.getAttribute('position');
+      const w = pillarOccluder.getAttribute('width');
+      posReadout.textContent = `柱(幅${w}): x=${p.x}, y=${p.y}, z=${p.z} | キャラ: x=${c.x}, y=${c.y}, z=${c.z}`;
+    }
+
     function toggleOcclusionMode() {
       isTransparentOcclusion = !isTransparentOcclusion;
       const mesh = pillarOccluder.getObject3D('mesh');
@@ -132,7 +200,6 @@
       }
     }
 
-    // 背面カメラ起動
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -146,27 +213,10 @@
     }
     startCamera();
 
-    // 自動追跡（2秒おきに空間認識ループ）のオン・オフ
-    function toggleAutoTracking() {
-      if (trackingTimer) {
-        clearInterval(trackingTimer);
-        trackingTimer = null;
-        scanBtn.textContent = "📷 自動追跡スタート";
-        scanBtn.style.background = "linear-gradient(135deg, #10b981, #059669)";
-        statusBadge.textContent = "一時停止中";
-        statusBadge.style.background = "#f59e0b";
-        statusBadge.style.color = "#000";
-      } else {
-        scanBtn.textContent = "⏹ 追跡ストップ";
-        scanBtn.style.background = "#64748b";
-        localizeOnce(); // 押した瞬間に1回目を実行
-        trackingTimer = setInterval(localizeOnce, 2000); // 以降2秒おきに自動更新
-      }
-    }
-
     async function localizeOnce() {
-      if (!video.videoWidth || isRequesting) return;
-      isRequesting = true;
+      if (!video.videoWidth) return;
+      statusBadge.textContent = "照合中...";
+      statusBadge.style.background = "#38bdf8";
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -177,10 +227,8 @@
       const focal = Math.max(canvas.width, canvas.height) * 0.8;
       const payload = {
         token: DEVELOPER_TOKEN,
-        fx: focal,
-        fy: focal,
-        ox: canvas.width / 2,
-        oy: canvas.height / 2,
+        fx: focal, fy: focal,
+        ox: canvas.width / 2, oy: canvas.height / 2,
         b64: base64Image,
         mapIds: [{ id: MAP_ID }]
       };
@@ -194,33 +242,25 @@
         const data = await res.json();
 
         if (data.error === "none" && data.success) {
-          statusBadge.textContent = "✅ 自動追跡中";
+          statusBadge.textContent = "✅ 認識成功";
           statusBadge.style.background = "#10b981";
           statusBadge.style.color = "#fff";
-
-          const px = data.px.toFixed(2);
-          const py = data.py.toFixed(2);
-          const pz = data.pz.toFixed(2);
-          coordText.innerHTML = `現在地: X=${px}m, Y=${py}m, Z=${pz}m<br>ゆっくり歩くと距離と角度が自動更新されます`;
+          coordText.textContent = "下のボタンで赤い柱を現実の柱に重ねてください";
 
           applyImmersalTransform(data);
           vpsWorldRoot.setAttribute('visible', true);
         } else {
-          // 追跡中に一時的に見失っても、すでに表示済みの3Dモデルは消さずに維持する
-          statusBadge.textContent = "再探索中...";
-          statusBadge.style.background = "#f59e0b";
-          statusBadge.style.color = "#000";
+          statusBadge.textContent = "未検出";
+          statusBadge.style.background = "#ef4444";
+          coordText.textContent = "理由: " + (data.error || "特徴点不一致");
         }
       } catch (e) {
         coordText.textContent = "通信エラー: " + e.message;
-      } finally {
-        isRequesting = false;
       }
     }
 
     function applyImmersalTransform(data) {
       const cam = document.getElementById('ar-camera').object3D;
-
       const m = new THREE.Matrix4();
       m.set(
         data.r00, data.r01, data.r02, data.px,
@@ -228,7 +268,6 @@
         data.r20, data.r21, data.r22, data.pz,
         0,        0,        0,        1
       );
-
       const flipZ = new THREE.Matrix4().makeScale(1, 1, -1);
       const mapToCam = new THREE.Matrix4().multiplyMatrices(flipZ, m).multiply(flipZ);
       const camToMap = mapToCam.clone().invert();
