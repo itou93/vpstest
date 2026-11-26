@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Immersal 室内テスト（ID: 153808 / fuguwa.glb）</title>
+  <title>Immersal 室内テスト（カメラ追従・泳ぐフグ）</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
   <style>
@@ -66,26 +66,33 @@
 
   <a-scene embedded vr-mode-ui="enabled: false" renderer="alpha: true;">
     <a-assets>
-      <!-- ★ モデルファイルを fuguwa.glb に設定（同じフォルダに置く場合は src="fuguwa.glb" に変更） -->
       <a-asset-item id="chara-model" src="maya/fuguwa.glb"></a-asset-item>
     </a-assets>
 
     <a-entity light="type: ambient; color: #ffffff; intensity: 1.8;"></a-entity>
     <a-entity light="type: directional; color: #ffffff; intensity: 1.0;" position="1 2 1"></a-entity>
 
-    <a-camera id="ar-camera" position="0 0 0" look-controls="touchEnabled: false"></a-camera>
+    <!-- ★ カメラの中にキャラを入れて、空間固定せずカメラに合わせて動かす -->
+    <a-camera id="ar-camera" position="0 0 0" look-controls="enabled: false">
+      <a-entity id="camera-follow-root" visible="false">
+        <a-entity
+          position="0 -0.4 -2.2"
+          animation__orbit="property: rotation; from: 0 0 0; to: 0 360 0; loop: true; dur: 14000; easing: linear">
 
-    <!-- 空間固定ルート -->
-    <a-entity id="vps-world-root" visible="false">
-      <a-entity
-        id="chara-entity"
-        gltf-model="#chara-model"
-        scale="0.2 0.2 0.2"
-        position="0 -1.1 -2.5"
-        rotation="0 0 0"
-        animation-mixer>
+          <a-entity
+            id="chara-entity"
+            gltf-model="#chara-model"
+            scale="0.2 0.2 0.2"
+            position="0.7 0 0"
+            rotation="0 0 0"
+            animation-mixer
+            animation__float="property: position; from: 0.7 -0.15 0; to: 0.7 0.15 0; dir: alternate; loop: true; dur: 1600; easing: easeInOutSine"
+            animation__wiggle="property: rotation; from: 0 -15 -5; to: 0 15 5; dir: alternate; loop: true; dur: 650; easing: easeInOutSine">
+          </a-entity>
+
+        </a-entity>
       </a-entity>
-    </a-entity>
+    </a-camera>
   </a-scene>
 
   <script>
@@ -103,7 +110,7 @@
     const recognitionBanner = document.getElementById('recognition-banner');
     const coordText = document.getElementById('coord-text');
     const scanBtn = document.getElementById('scan-btn');
-    const vpsWorldRoot = document.getElementById('vps-world-root');
+    const cameraFollowRoot = document.getElementById('camera-follow-root');
 
     let trackingTimer = null;
     let isRequesting = false;
@@ -183,8 +190,8 @@
           const pz = data.pz.toFixed(2);
           coordText.textContent = `X=${px}m, Y=${py}m, Z=${pz}m`;
 
-          applyImmersalTransform(data);
-          vpsWorldRoot.setAttribute('visible', true);
+          // ★ 認識したらカメラの目の前に表示（空間座標には固定しない）
+          cameraFollowRoot.setAttribute('visible', true);
         } else {
           hud.style.borderColor = "#f59e0b";
           statusBadge.textContent = "🔍 探索中...";
@@ -199,31 +206,6 @@
       } finally {
         isRequesting = false;
       }
-    }
-
-    function applyImmersalTransform(data) {
-      const cam = document.getElementById('ar-camera').object3D;
-      const m = new THREE.Matrix4();
-      m.set(
-        data.r00, data.r01, data.r02, data.px,
-        data.r10, data.r11, data.r12, data.py,
-        data.r20, data.r21, data.r22, data.pz,
-        0,        0,        0,        1
-      );
-      const flipZ = new THREE.Matrix4().makeScale(1, 1, -1);
-      const mapToCam = new THREE.Matrix4().multiplyMatrices(flipZ, m).multiply(flipZ);
-      const camToMap = mapToCam.clone().invert();
-
-      cam.updateMatrixWorld();
-      const worldMatrix = new THREE.Matrix4().multiplyMatrices(cam.matrixWorld, camToMap);
-
-      const pos = new THREE.Vector3();
-      const quat = new THREE.Quaternion();
-      const scale = new THREE.Vector3();
-      worldMatrix.decompose(pos, quat, scale);
-
-      vpsWorldRoot.object3D.position.copy(pos);
-      vpsWorldRoot.object3D.quaternion.copy(quat);
     }
   </script>
 </body>
