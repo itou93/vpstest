@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Immersal 動画スキャンマップ 1マップテスト</title>
+  <title>Immersal 2マップ同時テスト</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
   <style>
@@ -61,7 +61,7 @@
       <button id="scan-btn" onclick="toggleAutoTracking()">📷 テスト開始</button>
     </div>
     <div id="recognition-banner">🎉 認識できてる！</div>
-    <div id="coord-text">新しい動画マップの場所にカメラを向けてください</div>
+    <div id="coord-text">2つのマップのどちらかにカメラを向けてください</div>
   </div>
 
   <a-scene embedded vr-mode-ui="enabled: false" renderer="alpha: true;">
@@ -79,8 +79,8 @@
       <a-entity
         id="chara-entity"
         gltf-model="#chara-model"
-        scale="0.08 0.08 0.08"
-        position="0 -0.8 -2.2"
+        scale="0.2 0.2 0.2"
+        position="0 -1.1 -2.5"
         rotation="0 0 0"
         animation-mixer>
       </a-entity>
@@ -89,10 +89,11 @@
 
   <script>
     // ==========================================
-    // ★ ここにトークンと、動画で撮った新しいMap IDを1つだけ入力
+    // 設定済み：Developer Token と 2つのMap ID
     // ==========================================
     const DEVELOPER_TOKEN = "64e94096aa570f86962c78e6804785f377c45317b8f1c5836c3470c73f3d105f";
-    const MAP_ID = 153798; // ← 新しい動画マップのIDに書き換えてください
+    const MAP_ID_1 = 153799;
+    const MAP_ID_2 = 153798;
     // ==========================================
 
     const video = document.getElementById('camera-video');
@@ -107,7 +108,6 @@
     let trackingTimer = null;
     let isRequesting = false;
 
-    // 背面カメラ起動
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -121,7 +121,6 @@
     }
     startCamera();
 
-    // 追跡開始・停止
     function toggleAutoTracking() {
       if (trackingTimer) {
         clearInterval(trackingTimer);
@@ -159,7 +158,10 @@
         ox: canvas.width / 2,
         oy: canvas.height / 2,
         b64: base64Image,
-        mapIds: [{ id: MAP_ID }] // 1マップのみ指定
+        mapIds: [
+          { id: MAP_ID_1 },
+          { id: MAP_ID_2 }
+        ]
       };
 
       try {
@@ -171,13 +173,15 @@
         const data = await res.json();
 
         if (data.error === "none" && data.success) {
+          const hitLabel = (data.map === MAP_ID_1) ? "マップ1" : "マップ2";
+
           hud.style.borderColor = "#10b981";
           statusBadge.textContent = "✅ 認識できてる！";
           statusBadge.style.background = "#10b981";
           statusBadge.style.color = "#fff";
 
           recognitionBanner.style.display = "block";
-          recognitionBanner.textContent = `🎉 認識できてる！（ID: ${MAP_ID}）`;
+          recognitionBanner.textContent = `🎉 認識できてる！（${hitLabel} / ID: ${data.map}）`;
 
           const px = data.px.toFixed(2);
           const py = data.py.toFixed(2);
