@@ -3,11 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>VPS 2マップ廊下見渡し試作版</title>
+  <title>Immersal VPS 屋内現在地マップ＆ARガイド</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
   <style>
+    * { box-sizing: border-box; }
     body { margin: 0; overflow: hidden; font-family: sans-serif; background: #000; }
+
     #camera-video {
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
       object-fit: cover; z-index: 0;
@@ -15,21 +17,75 @@
     a-scene {
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1;
     }
-    #hud {
-      position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
-      width: 90%; max-width: 400px; z-index: 9999;
-      background: rgba(15, 23, 42, 0.88); color: #fff;
-      padding: 12px 16px; border-radius: 14px; border: 1px solid #38bdf8;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4); font-size: 12px; line-height: 1.4;
+
+    /* 上部ステータスバー */
+    #top-hud {
+      position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+      width: 92%; max-width: 420px; z-index: 9999;
+      background: rgba(15, 23, 42, 0.9); color: #fff;
+      padding: 12px 14px; border-radius: 14px; border: 2px solid #38bdf8;
+      font-size: 12px; line-height: 1.4;
+      transition: border-color 0.2s;
     }
+    .hud-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     #status-badge {
-      display: inline-block; padding: 3px 10px; border-radius: 10px;
-      background: #f59e0b; color: #000; font-weight: bold; margin-bottom: 4px;
+      padding: 5px 12px; border-radius: 10px;
+      background: #f59e0b; color: #000; font-weight: bold; font-size: 13px;
     }
     #scan-btn {
-      width: 100%; margin-top: 8px; padding: 10px; border: none; border-radius: 8px;
       background: linear-gradient(135deg, #10b981, #059669);
-      color: white; font-weight: bold; font-size: 13px; cursor: pointer;
+      color: #fff; border: none; border-radius: 8px;
+      padding: 7px 12px; font-weight: bold; font-size: 12px; cursor: pointer;
+      white-space: nowrap;
+    }
+    /* ★ 認識成功時に目立つコメント枠 */
+    #recognition-banner {
+      display: none;
+      margin-top: 8px; padding: 6px 10px; border-radius: 8px;
+      background: rgba(16, 185, 129, 0.25); border: 1px solid #10b981;
+      color: #6ee7b7; font-weight: bold; font-size: 13px; text-align: center;
+    }
+
+    /* 下部 校内ミニマップ */
+    #mini-map-panel {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      width: 92%; max-width: 420px; z-index: 9999;
+      background: rgba(15, 23, 42, 0.92); color: #fff;
+      padding: 10px 12px; border-radius: 16px; border: 1px solid #64748b;
+    }
+    .map-header {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 12px; margin-bottom: 6px;
+    }
+    #current-area-name { font-weight: bold; color: #38bdf8; }
+
+    #floor-canvas {
+      position: relative; width: 100%; height: 130px;
+      background: #1e293b; border-radius: 10px; border: 1px solid #334155;
+      background-image: radial-gradient(#334155 1px, transparent 1px);
+      background-size: 14px 14px; overflow: hidden;
+    }
+    .corridor-shape {
+      position: absolute; top: 42%; left: 8%; width: 84%; height: 28px;
+      background: #334155; border-radius: 6px;
+    }
+    .spot-dot {
+      position: absolute; transform: translate(-50%, -50%);
+      font-size: 10px; color: #94a3b8; text-align: center;
+    }
+    .spot-dot::before {
+      content: ""; display: block; width: 8px; height: 8px; margin: 0 auto 2px;
+      background: #64748b; border-radius: 50%;
+    }
+
+    #user-pin {
+      display: none;
+      position: absolute; transform: translate(-50%, -50%);
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #38bdf8; border: 3px solid #fff;
+      box-shadow: 0 0 12px #38bdf8;
+      transition: top 0.5s ease, left 0.5s ease;
+      z-index: 10;
     }
   </style>
 </head>
@@ -38,12 +94,33 @@
   <video id="camera-video" autoplay playsinline muted></video>
   <canvas id="capture-canvas" style="display:none;"></canvas>
 
-  <div id="hud">
-    <div><span id="status-badge">スキャン待機中</span></div>
-    <div id="coord-text">廊下を写してスタートを押すと、歩きながら見渡せます</div>
-    <button id="scan-btn" onclick="toggleAutoTracking()">📷 見渡し追跡スタート</button>
+  <!-- 上部：VPS認識ステータス -->
+  <div id="top-hud">
+    <div class="hud-row">
+      <span id="status-badge">スキャン待機中</span>
+      <button id="scan-btn" onclick="toggleAutoTracking()">📷 現在地スキャン開始</button>
+    </div>
+    <!-- ★ 認識できているときにハッキリ表示されるコメント -->
+    <div id="recognition-banner">🎉 認識できてる！空間を正常に読み取り中</div>
+    <div id="coord-text" style="margin-top:6px;">廊下にカメラを向けると、下の校内マップに現在地が出ます</div>
   </div>
 
+  <!-- 下部：校内マップ -->
+  <div id="mini-map-panel">
+    <div class="map-header">
+      <span>🏫 校内マップ（4F）</span>
+      <span id="current-area-name">現在地：未特定</span>
+    </div>
+    <div id="floor-canvas">
+      <div class="corridor-shape"></div>
+      <div class="spot-dot" style="top: 50%; left: 28%;">4F廊下(左)</div>
+      <div class="spot-dot" style="top: 50%; left: 52%;">4F廊下(右・天井)</div>
+      <div class="spot-dot" style="top: 50%; left: 78%;">実習室前</div>
+      <div id="user-pin"></div>
+    </div>
+  </div>
+
+  <!-- AR空間 -->
   <a-scene embedded vr-mode-ui="enabled: false" renderer="alpha: true;">
     <a-assets>
       <a-asset-item id="chara-model" src="maya/kougyo2.glb"></a-asset-item>
@@ -54,7 +131,6 @@
 
     <a-camera id="ar-camera" position="0 0 0" look-controls="touchEnabled: false"></a-camera>
 
-    <!-- 空間に固定されるルート要素（柱ボックスは削除済み） -->
     <a-entity id="vps-world-root" visible="false">
       <a-entity
         id="chara-entity"
@@ -69,22 +145,45 @@
 
   <script>
     // ==========================================
-    const DEVELOPER_TOKEN = "64e94096aa570f86962c78e6804785f377c45317b8f1c5836c3470c73f3d105f";
-    const MAP_ID_LEFT  = 153490; 
-    const MAP_ID_RIGHT = 153793;
+    // 1. Map ID と「校内マップ上の位置(%)」の紐付け辞書
     // ==========================================
+    const DEVELOPER_TOKEN = "ここにDeveloper Tokenを貼り付け";
 
+    const MAP_LOCATIONS = {
+      153490: {
+        areaName: "4F 廊下（左側エリア）",
+        mapTop: "50%",
+        mapLeft: "28%",
+        charaPos: "0 -0.8 -2.2"
+      },
+      153491: {
+        areaName: "4F 廊下（右側・天井エリア）",
+        mapTop: "50%",
+        mapLeft: "52%",
+        charaPos: "0 -0.8 -2.2"
+      }
+    };
+
+    const ALL_MAP_IDS = Object.keys(MAP_LOCATIONS).map(id => ({ id: Number(id) }));
+
+    // ==========================================
+    // 2. カメラ起動 ＆ 自動VPS現在地特定ループ
+    // ==========================================
     const video = document.getElementById('camera-video');
     const canvas = document.getElementById('capture-canvas');
+    const topHud = document.getElementById('top-hud');
     const statusBadge = document.getElementById('status-badge');
+    const recognitionBanner = document.getElementById('recognition-banner');
     const coordText = document.getElementById('coord-text');
-    const vpsWorldRoot = document.getElementById('vps-world-root');
     const scanBtn = document.getElementById('scan-btn');
+    const userPin = document.getElementById('user-pin');
+    const currentAreaName = document.getElementById('current-area-name');
+    const vpsWorldRoot = document.getElementById('vps-world-root');
+    const charaEntity = document.getElementById('chara-entity');
 
     let trackingTimer = null;
     let isRequesting = false;
 
-    // 背面カメラ起動
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -98,21 +197,22 @@
     }
     startCamera();
 
-    // 自動追跡の開始・停止
     function toggleAutoTracking() {
       if (trackingTimer) {
         clearInterval(trackingTimer);
         trackingTimer = null;
-        scanBtn.textContent = "📷 見渡し追跡スタート";
+        scanBtn.textContent = "📷 現在地スキャン開始";
         scanBtn.style.background = "linear-gradient(135deg, #10b981, #059669)";
-        statusBadge.textContent = "一時停止中";
+        statusBadge.textContent = "停止中";
         statusBadge.style.background = "#f59e0b";
         statusBadge.style.color = "#000";
+        recognitionBanner.style.display = "none";
+        topHud.style.borderColor = "#38bdf8";
       } else {
-        scanBtn.textContent = "⏹ 追跡ストップ";
+        scanBtn.textContent = "⏹ スキャン停止";
         scanBtn.style.background = "#64748b";
         localizeOnce();
-        trackingTimer = setInterval(localizeOnce, 2000); // 2秒ごとに自動更新
+        trackingTimer = setInterval(localizeOnce, 2000);
       }
     }
 
@@ -129,16 +229,10 @@
       const focal = Math.max(canvas.width, canvas.height) * 0.8;
       const payload = {
         token: DEVELOPER_TOKEN,
-        fx: focal,
-        fy: focal,
-        ox: canvas.width / 2,
-        oy: canvas.height / 2,
+        fx: focal, fy: focal,
+        ox: canvas.width / 2, oy: canvas.height / 2,
         b64: base64Image,
-        // 2つのマップを同時に指定（ヒットした方が自動で返ってくる）
-        mapIds: [
-          { id: MAP_ID_LEFT },
-          { id: MAP_ID_RIGHT }
-        ]
+        mapIds: ALL_MAP_IDS
       };
 
       try {
@@ -150,23 +244,42 @@
         const data = await res.json();
 
         if (data.error === "none" && data.success) {
-          // どちらのマップでヒットしたか判定
-          const hitSide = (data.map === MAP_ID_LEFT) ? "左側マップ" : "右側＋天井マップ";
-          statusBadge.textContent = `✅ ${hitSide}で認識中`;
+          const loc = MAP_LOCATIONS[data.map];
+          const areaLabel = loc ? loc.areaName : `Map ID: ${data.map}`;
+
+          // ★ 認識できているときのハッキリした表示
+          topHud.style.borderColor = "#10b981";
+          statusBadge.textContent = "✅ 認識できてる！";
           statusBadge.style.background = "#10b981";
           statusBadge.style.color = "#fff";
+
+          recognitionBanner.style.display = "block";
+          recognitionBanner.textContent = `🎉 認識できてる！（${areaLabel}）`;
+
+          if (loc) {
+            currentAreaName.textContent = `現在地：${loc.areaName}`;
+            userPin.style.display = "block";
+            userPin.style.top = loc.mapTop;
+            userPin.style.left = loc.mapLeft;
+            charaEntity.setAttribute('position', loc.charaPos);
+          }
 
           const px = data.px.toFixed(2);
           const py = data.py.toFixed(2);
           const pz = data.pz.toFixed(2);
-          coordText.textContent = `位置: X=${px}m, Y=${py}m, Z=${pz}m（歩き・見渡し追従中）`;
+          coordText.textContent = `相対座標: X=${px}m, Y=${py}m, Z=${pz}m`;
 
           applyImmersalTransform(data);
           vpsWorldRoot.setAttribute('visible', true);
         } else {
-          statusBadge.textContent = "空間探索中...";
+          // ★ 読み取れていないときの表示
+          topHud.style.borderColor = "#f59e0b";
+          statusBadge.textContent = "🔍 空間を探索中...";
           statusBadge.style.background = "#f59e0b";
           statusBadge.style.color = "#000";
+
+          recognitionBanner.style.display = "none";
+          coordText.textContent = "特徴点を探しています（ゆっくりカメラを向けてください）";
         }
       } catch (e) {
         coordText.textContent = "通信エラー: " + e.message;
@@ -177,7 +290,6 @@
 
     function applyImmersalTransform(data) {
       const cam = document.getElementById('ar-camera').object3D;
-
       const m = new THREE.Matrix4();
       m.set(
         data.r00, data.r01, data.r02, data.px,
@@ -185,7 +297,6 @@
         data.r20, data.r21, data.r22, data.pz,
         0,        0,        0,        1
       );
-
       const flipZ = new THREE.Matrix4().makeScale(1, 1, -1);
       const mapToCam = new THREE.Matrix4().multiplyMatrices(flipZ, m).multiply(flipZ);
       const camToMap = mapToCam.clone().invert();
